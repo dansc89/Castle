@@ -2,7 +2,7 @@ Castle is a native macOS 2D drafting app focused on DXF workflows for architectu
 
 ## Requirements
 
-- Apple Silicon Mac (M1/M2/M3/M4)
+- Apple Silicon Mac (M1 or newer)
 - macOS 13.0 or newer
 
 ## Download
