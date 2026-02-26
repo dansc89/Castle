@@ -11,6 +11,7 @@ Where Drawbridge is the PDF markup editor, Castle is the drafting tool:
 ## v0 Scope
 
 - Open existing `.dxf` files
+- Import `.dwg` via guarded conversion to `.dxf` with validation report output
 - Create and edit basic entities (`LINE`, `CIRCLE`)
 - Save back to `.dxf`
 - Export drawing output to `.pdf`

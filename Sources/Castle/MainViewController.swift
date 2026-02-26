@@ -44,7 +44,11 @@ final class MainViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView()
+        let dropView = DXFDropHostView()
+        dropView.onDropDrawing = { url, sourceWindow in
+            (NSApp.delegate as? AppDelegate)?.openDocumentFromDrop(url, sourceWindow: sourceWindow)
+        }
+        view = dropView
     }
 
     override func viewDidLoad() {
