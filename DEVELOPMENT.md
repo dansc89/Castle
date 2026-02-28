@@ -22,6 +22,16 @@ cd /Users/danielnguyen/Castle
 open /Users/danielnguyen/Castle/dist/Castle.app
 ```
 
+## DWG Converter Setup
+
+Castle imports DWG files by calling the GPL `dwg2dxf` converter from `libdxfrw`. Before using the feature:
+
+1. Ensure `git` and `cmake` are installed.
+2. Run `./Scripts/setup-dwg2dxf.sh`; it will clone/update `libdxfrw`, build the `dwg2dxf` target, and install the binary under `~/Library/Application Support/Castle/Converters/dwg2dxf/dwg2dxf` (or `CASTLE_DWG_CONVERTER_ROOT` if that env var is set).
+3. Optionally override the binary path with `CASTLE_DWG2DXF_PATH` when launching Castle.
+
+The app checks `CASTLE_DWG2DXF_PATH`, then the default install directory, and finally whatever `dwg2dxf` exists on `PATH`. If those all fail Castle falls back to the ODA File Converter if it is installed in `/Applications`.
+
 ## Test
 
 ```bash

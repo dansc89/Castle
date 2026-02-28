@@ -14,7 +14,7 @@ enum DWGImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .converterNotFound:
-            return "No DWG converter found. Install ODA File Converter or dwg2dxf."
+            return "No DWG converter found. Run Scripts/setup-dwg2dxf.sh (or install ODA File Converter) to install dwg2dxf, or set CASTLE_DWG2DXF_PATH to a custom binary."
         case let .conversionFailed(details):
             return "DWG conversion failed. \(details)"
         case let .invalidConvertedDXF(details):
@@ -69,14 +69,21 @@ enum DWGImportService {
 
     private static func tryDWG2DXF(sourceDWG: URL, outputDir: URL) throws -> URL? {
         let outURL = outputDir.appendingPathComponent(sourceDWG.deletingPathExtension().lastPathComponent + ".dxf")
-        let attempts: [[String]] = [
-            ["dwg2dxf", sourceDWG.path, "-o", outURL.path],
-            ["dwg2dxf", "-o", outURL.path, sourceDWG.path]
+        let variants: [[String]] = [
+            ["-o", outURL.path, sourceDWG.path],
+            [sourceDWG.path, "-o", outURL.path]
         ]
-        for args in attempts {
-            let result = run(executable: "/usr/bin/env", arguments: args)
-            if result.exitCode == 0, FileManager.default.fileExists(atPath: outURL.path) {
-                return outURL
+        let candidatePaths = try dwg2dxfCandidates()
+        for candidate in candidatePaths {
+            if candidate.contains("/"), !FileManager.default.isExecutableFile(atPath: candidate) {
+                continue
+            }
+            for args in variants {
+                let command = [candidate] + args
+                let result = run(executable: "/usr/bin/env", arguments: command)
+                if result.exitCode == 0, FileManager.default.fileExists(atPath: outURL.path) {
+                    return outURL
+                }
             }
         }
         return nil
@@ -116,6 +123,35 @@ enum DWGImportService {
             }
         }
         return nil
+    }
+
+    private static func dwg2dxfCandidates() throws -> [String] {
+        var candidates = [String]()
+        let env = ProcessInfo.processInfo.environment
+        if let custom = env["CASTLE_DWG2DXF_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            candidates.append(custom)
+        }
+        let installRoot = try converterInstallRoot()
+        let installed = installRoot.appendingPathComponent("dwg2dxf/dwg2dxf").path
+        candidates.append(installed)
+        candidates.append("dwg2dxf")
+
+        var ordered = [String]()
+        var seen = Set<String>()
+        for candidate in candidates {
+            if seen.insert(candidate).inserted {
+                ordered.append(candidate)
+            }
+        }
+        return ordered
+    }
+
+    private static func converterInstallRoot() throws -> URL {
+        if let override = ProcessInfo.processInfo.environment["CASTLE_DWG_CONVERTER_ROOT"]?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        return base.appendingPathComponent("Castle/Converters", isDirectory: true)
     }
 
     private static func run(executable: String, arguments: [String]) -> (exitCode: Int32, output: String) {
