@@ -22,12 +22,11 @@ Download the `.dmg`, open it, then drag **Castle.app** into **Applications**.
 
 ## DWG Conversion
 
-Castle's DWG import relies on the GPL `dwg2dxf` converter from [`libdxfrw`](https://github.com/codelibs/libdxfrw). To make sure the converter is always available:
+Castle ships with the GPL `dwg2dxf` converter (from [`libdxfrw`](https://github.com/codelibs/libdxfrw)) embedded inside the app at `Contents/Resources/Converters/dwg2dxf/dwg2dxf`, so DWG → DXF conversion works out of the box in the release build.
 
-1. Run `./Scripts/setup-dwg2dxf.sh` (requires `git` and `cmake`) to clone/build `libdxfrw` and install the `dwg2dxf` binary under `~/Library/Application Support/Castle/Converters/dwg2dxf/dwg2dxf` (or another path you choose via `CASTLE_DWG_CONVERTER_ROOT`).
-2. Castle looks for a converter in this order: `CASTLE_DWG2DXF_PATH`, the default install location, and finally whatever `dwg2dxf` is on `PATH`. If you prefer to ship a custom build, set `CASTLE_DWG2DXF_PATH` to that executable before launching Castle.
+For development we still provide `./Scripts/setup-dwg2dxf.sh` (requires `git` and `cmake`) so you can rebuild the converter yourself, refresh the binary under `~/Library/Application Support/Castle/Converters/dwg2dxf`, or override the path via `CASTLE_DWG2DXF_PATH`/`CASTLE_DWG_CONVERTER_ROOT`.
 
-If you prefer the ODA File Converter, Castle will still fall back to `/Applications/ODA File Converter.app`/`ODAFileConverter.app` if those bundles are installed.
+Castle will check (in order) `CASTLE_DWG2DXF_PATH`, the embedded resource, the Application Support install location, and finally any `dwg2dxf` on `PATH` before falling back to the ODA File Converter if it is installed in `/Applications`.
 
 ## Support
 

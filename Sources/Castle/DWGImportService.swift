@@ -131,6 +131,9 @@ enum DWGImportService {
         if let custom = env["CASTLE_DWG2DXF_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
             candidates.append(custom)
         }
+        if let resource = bundleResourceConverterPath() {
+            candidates.append(resource)
+        }
         let installRoot = try converterInstallRoot()
         let installed = installRoot.appendingPathComponent("dwg2dxf/dwg2dxf").path
         candidates.append(installed)
@@ -144,6 +147,22 @@ enum DWGImportService {
             }
         }
         return ordered
+    }
+
+    private static func bundleResourceConverterPath() -> String? {
+        let candidates = [
+            Bundle.main.resourceURL,
+            Bundle.main.sharedSupportURL,
+            Bundle.main.bundleURL
+        ]
+        for base in candidates.compactMap({ $0 }) {
+            let candidate = base
+                .appendingPathComponent("Contents/Resources/Converters/dwg2dxf/dwg2dxf", isDirectory: false)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate.path
+            }
+        }
+        return nil
     }
 
     private static func converterInstallRoot() throws -> URL {

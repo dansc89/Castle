@@ -21,10 +21,23 @@ ICON_SOURCE_PNG="${CASTLE_ICON_SOURCE_PNG:-Assets/AppIcon.source.png}"
 ICON_USE_AS_IS="${CASTLE_ICON_USE_AS_IS:-0}"
 ICON_FILE_NAME="Castle"
 ICON_ICNS_PATH="$RESOURCES_DIR/$ICON_FILE_NAME.icns"
+DWG2DXF_SOURCE="${CASTLE_DWG2DXF_SOURCE:-$HOME/Library/Application Support/Castle/Converters/dwg2dxf/dwg2dxf}"
+DWG2DXF_RESOURCE_DIR="$RESOURCES_DIR/Converters/dwg2dxf"
 VERSION_TAG="${CASTLE_VERSION_TAG:-v0.1.0}"
 APP_VERSION="${VERSION_TAG#v}"
 BUILD_NUMBER="${CASTLE_BUILD_NUMBER:-1}"
 SIGN_IDENTITY="${CASTLE_CODESIGN_IDENTITY:-}"
+
+if [[ "${CASTLE_SKIP_DWG2DXF_SETUP:-0}" != "1" ]]; then
+  if [[ -x "$ROOT_DIR/Scripts/setup-dwg2dxf.sh" ]]; then
+    echo "Building dwg2dxf for packaging..."
+    "$ROOT_DIR/Scripts/setup-dwg2dxf.sh"
+  else
+    echo "Warning: setup-dwg2dxf.sh not found; dwg2dxf won’t be packaged." >&2
+  fi
+else
+  echo "Skipping dwg2dxf setup because CASTLE_SKIP_DWG2DXF_SETUP=1"
+fi
 
 echo "Building release binary..."
 swift build -c release
@@ -148,6 +161,15 @@ cat > "$PLIST_PATH" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ -x "$DWG2DXF_SOURCE" ]]; then
+  mkdir -p "$DWG2DXF_RESOURCE_DIR"
+  cp "$DWG2DXF_SOURCE" "$DWG2DXF_RESOURCE_DIR/dwg2dxf"
+  chmod +x "$DWG2DXF_RESOURCE_DIR/dwg2dxf"
+  echo "Bundled dwg2dxf into app resources."
+else
+  echo "Warning: dwg2dxf missing from $DWG2DXF_SOURCE; DWG import will rely on external converters."
+fi
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   echo "Signing app bundle with identity: $SIGN_IDENTITY"
