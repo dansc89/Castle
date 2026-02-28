@@ -150,16 +150,22 @@ enum DWGImportService {
     }
 
     private static func bundleResourceConverterPath() -> String? {
-        let candidates = [
+        let bases = [
             Bundle.main.resourceURL,
             Bundle.main.sharedSupportURL,
             Bundle.main.bundleURL
+        ].compactMap { $0 }
+        let relativePaths = [
+            "Converters/dwg2dxf/dwg2dxf",
+            "Contents/Resources/Converters/dwg2dxf/dwg2dxf",
+            "Contents/SharedSupport/Converters/dwg2dxf/dwg2dxf"
         ]
-        for base in candidates.compactMap({ $0 }) {
-            let candidate = base
-                .appendingPathComponent("Contents/Resources/Converters/dwg2dxf/dwg2dxf", isDirectory: false)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) {
-                return candidate.path
+        for base in bases {
+            for relative in relativePaths {
+                let candidate = base.appendingPathComponent(relative, isDirectory: false)
+                if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                    return candidate.path
+                }
             }
         }
         return nil
