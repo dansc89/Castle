@@ -32,7 +32,14 @@ final class CADCanvasView: NSView {
     }
 
     var document: DXFDocument = .empty {
-        didSet { needsDisplay = true }
+        didSet {
+            if let selectedEntityIndex, !document.entities.indices.contains(selectedEntityIndex) {
+                self.selectedEntityIndex = nil
+            } else {
+                notifySelectionChanged()
+            }
+            needsDisplay = true
+        }
     }
 
     var toolMode: ToolMode = .select {
@@ -48,6 +55,7 @@ final class CADCanvasView: NSView {
     var onPolylineSegmentCreated: ((DXFPoint, DXFPoint) -> Void)?
     var onDocumentChanged: ((DXFDocument) -> Void)?
     var onViewTransformChanged: ((CGFloat, CGPoint) -> Void)?
+    var onSelectionChanged: ((Int?, DXFEntity?) -> Void)?
     var gridStep: CGFloat = 10 {
         didSet { needsDisplay = true }
     }
@@ -76,7 +84,13 @@ final class CADCanvasView: NSView {
     private var pendingPoint: DXFPoint?
     private var lastMouseWorld = DXFPoint(x: 1, y: 0)
     private var lastDirectionVector = CGVector(dx: 1, dy: 0)
-    private var selectedEntityIndex: Int?
+    private var selectedEntityIndex: Int? {
+        didSet {
+            if oldValue != selectedEntityIndex {
+                notifySelectionChanged()
+            }
+        }
+    }
     private var dragMode: DragMode = .none
     private var hasPendingDragCommit = false
     private var selectedViewportID: UUID?
@@ -1026,11 +1040,33 @@ final class CADCanvasView: NSView {
 
     private func drawPendingPreview(in context: CGContext) {
         guard let pendingPoint else { return }
+        let livePoint = draftingPoint(lastMouseWorld, anchor: pendingPoint)
         context.saveGState()
         context.setStrokeColor(NordTheme.frost1.cgColor)
         context.setLineWidth(1.2)
+        context.setLineDash(phase: 0, lengths: [6, 4])
         let p = worldToView(pendingPoint)
+        let live = worldToView(livePoint)
         context.strokeEllipse(in: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8))
+        switch toolMode {
+        case .line, .polyline:
+            context.move(to: p)
+            context.addLine(to: live)
+            context.strokePath()
+        case .rectangle:
+            let rect = CGRect(
+                x: min(p.x, live.x),
+                y: min(p.y, live.y),
+                width: abs(live.x - p.x),
+                height: abs(live.y - p.y)
+            )
+            context.stroke(rect)
+        case .circle:
+            let vr = distance(pendingPoint, livePoint) * zoom
+            context.strokeEllipse(in: CGRect(x: p.x - vr, y: p.y - vr, width: vr * 2, height: vr * 2))
+        case .select:
+            break
+        }
         context.restoreGState()
     }
 
@@ -1291,6 +1327,14 @@ final class CADCanvasView: NSView {
 
     private func notifyViewTransformChanged() {
         onViewTransformChanged?(zoom, panOffset)
+    }
+
+    private func notifySelectionChanged() {
+        guard let selectedEntityIndex, document.entities.indices.contains(selectedEntityIndex) else {
+            onSelectionChanged?(nil, nil)
+            return
+        }
+        onSelectionChanged?(selectedEntityIndex, document.entities[selectedEntityIndex])
     }
 
     private func entityExtents() -> (minX: CGFloat, minY: CGFloat, maxX: CGFloat, maxY: CGFloat)? {

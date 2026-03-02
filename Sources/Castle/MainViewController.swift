@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class MainViewController: NSViewController, NSTextFieldDelegate {
+final class MainViewController: NSViewController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
     private let headerTitleLabel = NSTextField(labelWithString: "Castle")
     private let documentTabButton = NSButton(title: "Untitled", target: nil, action: nil)
     private let summaryLabel = NSTextField(labelWithString: "")
@@ -10,6 +10,12 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
     private let statusDocLabel = NSTextField(labelWithString: "")
     private let inspectorTitleLabel = NSTextField(labelWithString: "Inspector")
     private let entityBreakdownLabel = NSTextField(labelWithString: "")
+    private let layersPanelTitleLabel = NSTextField(labelWithString: "Layers")
+    private let propertiesPanelTitleLabel = NSTextField(labelWithString: "Properties")
+    private let propertiesLabel = NSTextField(labelWithString: "")
+    private let layerTableView = NSTableView()
+    private let layerTableScrollView = NSScrollView()
+    private var inspectorLayers: [String] = []
 
     private let canvasView = CADCanvasView()
     private let selectToolButton = NSButton(title: "Select  V", target: nil, action: nil)
@@ -275,6 +281,37 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
         entityBreakdownLabel.lineBreakMode = .byWordWrapping
         entityBreakdownLabel.maximumNumberOfLines = 0
 
+        layersPanelTitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        layersPanelTitleLabel.textColor = NordTheme.snowStorm1
+        propertiesPanelTitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        propertiesPanelTitleLabel.textColor = NordTheme.snowStorm1
+
+        propertiesLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        propertiesLabel.textColor = NordTheme.snowStorm0
+        propertiesLabel.lineBreakMode = .byWordWrapping
+        propertiesLabel.maximumNumberOfLines = 0
+
+        let layerNameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("layerName"))
+        layerNameColumn.title = "Layer"
+        layerNameColumn.width = 150
+        let layerStateColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("layerState"))
+        layerStateColumn.title = "State"
+        layerStateColumn.width = 120
+        layerTableView.addTableColumn(layerNameColumn)
+        layerTableView.addTableColumn(layerStateColumn)
+        layerTableView.headerView = nil
+        layerTableView.intercellSpacing = NSSize(width: 6, height: 2)
+        layerTableView.rowHeight = 18
+        layerTableView.backgroundColor = NordTheme.polarNight1
+        layerTableView.delegate = self
+        layerTableView.dataSource = self
+
+        layerTableScrollView.hasVerticalScroller = true
+        layerTableScrollView.borderType = .lineBorder
+        layerTableScrollView.backgroundColor = NordTheme.polarNight1
+        layerTableScrollView.documentView = layerTableView
+        layerTableScrollView.translatesAutoresizingMaskIntoConstraints = false
+
         configureToolButton(selectToolButton, action: #selector(selectToolFromUI(_:)))
         configureToolButton(lineToolButton, action: #selector(lineToolFromUI(_:)))
         configureToolButton(polylineToolButton, action: #selector(polylineToolFromUI(_:)))
@@ -327,13 +364,26 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
         topBarStack.translatesAutoresizingMaskIntoConstraints = false
         topBar.addSubview(topBarStack)
 
-        let inspector = NSStackView(views: [hintLabel, inspectorTitleLabel, entityBreakdownLabel])
+        let propertiesStack = NSStackView(views: [propertiesPanelTitleLabel, propertiesLabel])
+        propertiesStack.orientation = .vertical
+        propertiesStack.spacing = 6
+        propertiesStack.alignment = .leading
+
+        let inspector = NSStackView(views: [
+            hintLabel,
+            inspectorTitleLabel,
+            entityBreakdownLabel,
+            layersPanelTitleLabel,
+            layerTableScrollView,
+            propertiesStack
+        ])
         inspector.orientation = .vertical
         inspector.spacing = 10
         inspector.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
         inspector.translatesAutoresizingMaskIntoConstraints = false
         inspector.wantsLayer = true
         inspector.layer?.backgroundColor = NordTheme.polarNight1.cgColor
+        layerTableScrollView.heightAnchor.constraint(equalToConstant: 220).isActive = true
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.isVertical = true
@@ -457,6 +507,9 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
         canvasView.onViewTransformChanged = { [weak self] zoom, pan in
             self?.updateNavigationStatus(zoom: zoom, pan: pan)
         }
+        canvasView.onSelectionChanged = { [weak self] _, _ in
+            self?.refreshUI()
+        }
     }
 
     private func refreshUI() {
@@ -500,6 +553,7 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
         spaceTabs.setLabel(layoutLabel, forSegment: 1)
         spaceTabs.selectedSegment = isInLayoutSpace ? 1 : 0
         entityBreakdownLabel.stringValue = entityBreakdownText(for: document)
+        refreshInspectorPanels()
         updateDXFSourcePreviewIfVisible()
     }
 
@@ -576,6 +630,63 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
 
     private func updateNavigationStatus(zoom: CGFloat, pan: CGPoint) {
         statusNavLabel.stringValue = String(format: "Zoom: %.0f%%   Pan: x %.0f  y %.0f", zoom * 100, pan.x, pan.y)
+    }
+
+    private func refreshInspectorPanels() {
+        inspectorLayers = Set(document.layerStyles.keys).union(allEntityLayers(in: document)).union([currentLayer, "0"]).sorted()
+        layerTableView.reloadData()
+        if let index = inspectorLayers.firstIndex(of: currentLayer) {
+            layerTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        } else {
+            layerTableView.deselectAll(nil)
+        }
+        propertiesLabel.stringValue = selectedEntityPropertiesText()
+    }
+
+    private func selectedEntityPropertiesText() -> String {
+        guard let selected = canvasView.selectedEntityInfo() else {
+            return "Selection: None\nPick an object to see geometry and style properties."
+        }
+        let layer = entityLayer(selected.entity)
+        let layerStyle = resolvedLayerStyle(named: layer, in: document)
+        let typeText: String
+        let geometryText: String
+        switch selected.entity {
+        case let .line(start, end, _, _):
+            typeText = "LINE"
+            let length = hypot(end.x - start.x, end.y - start.y)
+            geometryText = String(
+                format: "Start: %.3f, %.3f\nEnd: %.3f, %.3f\nLength: %.3f",
+                start.x, start.y, end.x, end.y, length
+            )
+        case let .circle(center, radius, _, _):
+            typeText = "CIRCLE"
+            geometryText = String(
+                format: "Center: %.3f, %.3f\nRadius: %.3f\nDiameter: %.3f",
+                center.x, center.y, radius, radius * 2
+            )
+        }
+        let style: DXFEntityStyle
+        switch selected.entity {
+        case let .line(_, _, _, s): style = s
+        case let .circle(_, _, _, s): style = s
+        }
+        let lt = style.lineType?.rawValue ?? layerStyle.lineType?.rawValue ?? "CONTINUOUS"
+        let lw = style.lineWeight ?? layerStyle.lineWeight ?? 0.25
+        let colorText = style.color == nil ? (layerStyle.color == nil ? "ByLayer(Default)" : "ByLayer") : "Override"
+        let state = [
+            layerStyle.isVisible ? "ON" : "OFF",
+            layerStyle.isLocked ? "LOCK" : "UNLOCK",
+            layerStyle.isFrozen ? "FRZ" : "THAW"
+        ].joined(separator: "/")
+        return """
+        Selection: #\(selected.index + 1) \(typeText)
+        Layer: \(layer) [\(state)]
+        Linetype: \(lt)
+        Lineweight: \(String(format: "%.2f mm", lw))
+        Color: \(colorText)
+        \(geometryText)
+        """
     }
 
     @objc private func resetViewPressed(_ sender: Any?) {
@@ -1846,6 +1957,56 @@ final class MainViewController: NSViewController, NSTextFieldDelegate {
             return
         }
         // Click/focus should not pop a menu; history is scrubbed via wheel or Up/Down keys.
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        guard tableView === layerTableView else { return 0 }
+        return inspectorLayers.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard tableView === layerTableView, inspectorLayers.indices.contains(row) else { return nil }
+        let layer = inspectorLayers[row]
+        let identifier = NSUserInterfaceItemIdentifier("layerCell-\(tableColumn?.identifier.rawValue ?? "col")")
+        let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
+        let textField: NSTextField
+        if let existing = cell.textField {
+            textField = existing
+        } else {
+            textField = NSTextField(labelWithString: "")
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(textField)
+            cell.textField = textField
+            NSLayoutConstraint.activate([
+                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+            ])
+        }
+        textField.font = .monospacedSystemFont(ofSize: 11, weight: layer == currentLayer ? .semibold : .regular)
+        textField.textColor = NordTheme.snowStorm0
+        let style = resolvedLayerStyle(named: layer, in: document)
+        if tableColumn?.identifier.rawValue == "layerName" {
+            textField.stringValue = layer
+        } else {
+            var parts: [String] = []
+            parts.append(style.isVisible ? "ON" : "OFF")
+            if style.isLocked { parts.append("LOCK") }
+            if style.isFrozen { parts.append("FRZ") }
+            textField.stringValue = parts.joined(separator: " ")
+        }
+        cell.identifier = identifier
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let tableView = notification.object as? NSTableView, tableView === layerTableView else { return }
+        guard layerTableView.selectedRow >= 0, inspectorLayers.indices.contains(layerTableView.selectedRow) else { return }
+        let selectedLayer = inspectorLayers[layerTableView.selectedRow]
+        if selectedLayer != currentLayer {
+            currentLayer = selectedLayer
+            refreshUI()
+        }
     }
 
     private func appendCommandHistory(_ command: String) {
