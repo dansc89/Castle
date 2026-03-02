@@ -21,11 +21,13 @@ enum PDFPublisher {
         for entity in document.entities {
             switch entity {
             case let .line(start, end, layer, style):
+                guard isLayerRenderable(layer, document: document) else { continue }
                 applyStrokeStyle(style: style, layer: layer, document: document, context: context)
                 context.move(to: CGPoint(x: start.x, y: start.y))
                 context.addLine(to: CGPoint(x: end.x, y: end.y))
                 context.strokePath()
             case let .circle(center, radius, layer, style):
+                guard isLayerRenderable(layer, document: document) else { continue }
                 applyStrokeStyle(style: style, layer: layer, document: document, context: context)
                 let rect = CGRect(
                     x: center.x - radius,
@@ -52,5 +54,24 @@ enum PDFPublisher {
 
         let lineWeight = style.lineWeight ?? layerStyle?.lineWeight ?? 0.25
         context.setLineWidth(max(0.35, lineWeight))
+
+        let lineType = style.lineType ?? layerStyle?.lineType ?? .continuous
+        switch lineType {
+        case .continuous:
+            context.setLineDash(phase: 0, lengths: [])
+        case .dashed:
+            context.setLineDash(phase: 0, lengths: [8, 6])
+        case .dotted:
+            context.setLineDash(phase: 0, lengths: [1.5, 4.5])
+        case .dashDot:
+            context.setLineDash(phase: 0, lengths: [8, 4, 1.5, 4])
+        }
+    }
+
+    private static func isLayerRenderable(_ layer: String, document: DXFDocument) -> Bool {
+        let style = document.layerStyles[layer]
+        let isVisible = style?.isVisible ?? true
+        let isFrozen = style?.isFrozen ?? false
+        return isVisible && !isFrozen
     }
 }

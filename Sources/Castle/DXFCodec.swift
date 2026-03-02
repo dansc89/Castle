@@ -182,6 +182,38 @@ enum DXFCodec {
         append("9", "$INSUNITS")
         append("70", "\(document.units.rawValue)")
         append("0", "ENDSEC")
+
+        append("0", "SECTION")
+        append("2", "TABLES")
+        append("0", "TABLE")
+        append("2", "LAYER")
+        let allLayers = Set(document.layerStyles.keys).union(allEntityLayers(in: document)).union(["0"])
+        append("70", "\(allLayers.count)")
+        for layer in allLayers.sorted() {
+            let style = document.layerStyles[layer] ?? DXFLayerStyle(color: nil, lineWeight: nil, lineType: nil, isVisible: true, isLocked: false, isFrozen: false)
+            append("0", "LAYER")
+            append("2", layer)
+            var flags = 0
+            if style.isFrozen { flags |= 1 }
+            if style.isLocked { flags |= 4 }
+            append("70", "\(flags)")
+            if let color = style.color {
+                append("420", "\(encodeTrueColor(color))")
+            }
+            let aci = style.isVisible ? "7" : "-7"
+            append("62", aci)
+            if let lineWeight = style.lineWeight {
+                append("370", "\(Int((lineWeight * 100).rounded()))")
+            }
+            if let lineType = style.lineType {
+                append("6", lineType.rawValue)
+            } else {
+                append("6", "CONTINUOUS")
+            }
+        }
+        append("0", "ENDTAB")
+        append("0", "ENDSEC")
+
         append("0", "SECTION")
         append("2", "ENTITIES")
 
@@ -210,6 +242,19 @@ enum DXFCodec {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    private static func allEntityLayers(in document: DXFDocument) -> Set<String> {
+        var layers: Set<String> = []
+        for entity in document.entities {
+            switch entity {
+            case let .line(_, _, layer, _):
+                layers.insert(layer)
+            case let .circle(_, _, layer, _):
+                layers.insert(layer)
+            }
+        }
+        return layers
+    }
+
     private static func format(_ value: CGFloat) -> String {
         String(format: "%.6f", Double(value))
     }
@@ -221,6 +266,9 @@ enum DXFCodec {
         if let lineWeight = style.lineWeight {
             append("370", "\(Int((lineWeight * 100).rounded()))")
         }
+        if let lineType = style.lineType {
+            append("6", lineType.rawValue)
+        }
     }
 
     private static func parseLayerStyle(
@@ -231,15 +279,24 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
+        var flags: Int = 0
+        var visible = true
         var index = startIndex + 1
         while index < pairs.count {
             let (c, v) = pairs[index]
             if c == "0" { break }
             switch c {
             case "2": name = v
-            case "62": aci = Int(v)
+            case "62":
+                if let raw = Int(v) {
+                    visible = raw >= 0
+                    aci = abs(raw)
+                }
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
+            case "70": flags = Int(v) ?? 0
             default: break
             }
             index += 1
@@ -248,7 +305,11 @@ enum DXFCodec {
             name,
             DXFLayerStyle(
                 color: resolveColor(aci: aci, trueColor: trueColor),
-                lineWeight: resolveLineWeight(raw: lineWeightRaw)
+                lineWeight: resolveLineWeight(raw: lineWeightRaw),
+                lineType: lineType,
+                isVisible: visible,
+                isLocked: (flags & 4) != 0,
+                isFrozen: (flags & 1) != 0
             ),
             index
         )
@@ -266,6 +327,7 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
         var index = startIndex + 1
         while index < pairs.count {
             let (c, v) = pairs[index]
@@ -279,11 +341,16 @@ enum DXFCodec {
             case "62": aci = Int(v)
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
             default: break
             }
             index += 1
         }
-        let style = DXFEntityStyle(color: resolveColor(aci: aci, trueColor: trueColor), lineWeight: resolveLineWeight(raw: lineWeightRaw))
+        let style = DXFEntityStyle(
+            color: resolveColor(aci: aci, trueColor: trueColor),
+            lineWeight: resolveLineWeight(raw: lineWeightRaw),
+            lineType: lineType
+        )
         return (.line(start: .init(x: x1, y: y1), end: .init(x: x2, y: y2), layer: layer, style: style), index)
     }
 
@@ -298,6 +365,7 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
         var index = startIndex + 1
         while index < pairs.count {
             let (c, v) = pairs[index]
@@ -310,11 +378,16 @@ enum DXFCodec {
             case "62": aci = Int(v)
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
             default: break
             }
             index += 1
         }
-        let style = DXFEntityStyle(color: resolveColor(aci: aci, trueColor: trueColor), lineWeight: resolveLineWeight(raw: lineWeightRaw))
+        let style = DXFEntityStyle(
+            color: resolveColor(aci: aci, trueColor: trueColor),
+            lineWeight: resolveLineWeight(raw: lineWeightRaw),
+            lineType: lineType
+        )
         return (.circle(center: .init(x: x, y: y), radius: radius, layer: layer, style: style), index)
     }
 
@@ -331,6 +404,7 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
         var index = startIndex + 1
         while index < pairs.count {
             let (c, v) = pairs[index]
@@ -345,13 +419,18 @@ enum DXFCodec {
             case "62": aci = Int(v)
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
             default: break
             }
             index += 1
         }
         guard radius > 0 else { return ([], index) }
 
-        let style = DXFEntityStyle(color: resolveColor(aci: aci, trueColor: trueColor), lineWeight: resolveLineWeight(raw: lineWeightRaw))
+        let style = DXFEntityStyle(
+            color: resolveColor(aci: aci, trueColor: trueColor),
+            lineWeight: resolveLineWeight(raw: lineWeightRaw),
+            lineType: lineType
+        )
         var sweep = endAngle - startAngle
         if sweep <= 0 { sweep += 360 }
         let segments = max(8, Int(ceil(abs(sweep) / 12)))
@@ -378,6 +457,7 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
         var index = startIndex + 1
         while index < pairs.count {
             let (c, v) = pairs[index]
@@ -395,11 +475,16 @@ enum DXFCodec {
             case "62": aci = Int(v)
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
             default: break
             }
             index += 1
         }
-        let style = DXFEntityStyle(color: resolveColor(aci: aci, trueColor: trueColor), lineWeight: resolveLineWeight(raw: lineWeightRaw))
+        let style = DXFEntityStyle(
+            color: resolveColor(aci: aci, trueColor: trueColor),
+            lineWeight: resolveLineWeight(raw: lineWeightRaw),
+            lineType: lineType
+        )
         return (polylineSegments(points: points, closed: (flags & 1) == 1, layer: layer, style: style), index)
     }
 
@@ -413,6 +498,7 @@ enum DXFCodec {
         var aci: Int?
         var trueColor: Int?
         var lineWeightRaw: Int?
+        var lineType: DXFLineType?
         var index = startIndex + 1
 
         while index < pairs.count {
@@ -424,6 +510,7 @@ enum DXFCodec {
             case "62": aci = Int(v)
             case "420": trueColor = Int(v)
             case "370": lineWeightRaw = Int(v)
+            case "6": lineType = parseLineType(v)
             default: break
             }
             index += 1
@@ -455,8 +542,27 @@ enum DXFCodec {
             index = cursor
         }
 
-        let style = DXFEntityStyle(color: resolveColor(aci: aci, trueColor: trueColor), lineWeight: resolveLineWeight(raw: lineWeightRaw))
+        let style = DXFEntityStyle(
+            color: resolveColor(aci: aci, trueColor: trueColor),
+            lineWeight: resolveLineWeight(raw: lineWeightRaw),
+            lineType: lineType
+        )
         return (polylineSegments(points: points, closed: (flags & 1) == 1, layer: layer, style: style), index)
+    }
+
+    private static func parseLineType(_ value: String) -> DXFLineType? {
+        switch value.uppercased() {
+        case "DASHED":
+            return .dashed
+        case "DOTTED":
+            return .dotted
+        case "DASHDOT":
+            return .dashDot
+        case "CONTINUOUS", "BYLAYER", "BYBLOCK":
+            return .continuous
+        default:
+            return nil
+        }
     }
 
     private static func parseInsert(

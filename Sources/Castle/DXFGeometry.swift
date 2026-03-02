@@ -11,16 +11,37 @@ struct DXFColor: Equatable {
     var b: CGFloat
 }
 
+enum DXFLineType: String, CaseIterable, Equatable {
+    case continuous = "CONTINUOUS"
+    case dashed = "DASHED"
+    case dotted = "DOTTED"
+    case dashDot = "DASHDOT"
+
+    var label: String {
+        switch self {
+        case .continuous: return "Continuous"
+        case .dashed: return "Dashed"
+        case .dotted: return "Dotted"
+        case .dashDot: return "Dash Dot"
+        }
+    }
+}
+
 struct DXFEntityStyle: Equatable {
     var color: DXFColor?
     var lineWeight: CGFloat?
+    var lineType: DXFLineType?
 
-    static let `default` = DXFEntityStyle(color: nil, lineWeight: nil)
+    static let `default` = DXFEntityStyle(color: nil, lineWeight: nil, lineType: nil)
 }
 
 struct DXFLayerStyle: Equatable {
     var color: DXFColor?
     var lineWeight: CGFloat?
+    var lineType: DXFLineType?
+    var isVisible: Bool = true
+    var isLocked: Bool = false
+    var isFrozen: Bool = false
 }
 
 enum DXFEntity: Equatable {
@@ -54,5 +75,5 @@ struct DXFDocument: Equatable {
     var layerStyles: [String: DXFLayerStyle]
     var entities: [DXFEntity]
 
-    static let empty = DXFDocument(name: "Untitled", units: .millimeters, layerStyles: [:], entities: [])
+    static let empty = DXFDocument(name: "Untitled", units: .inches, layerStyles: [:], entities: [])
 }

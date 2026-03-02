@@ -70,10 +70,18 @@ enum DWGImportService {
     private static func tryDWG2DXF(sourceDWG: URL, outputDir: URL) throws -> URL? {
         let outURL = outputDir.appendingPathComponent(sourceDWG.deletingPathExtension().lastPathComponent + ".dxf")
         let variants: [[String]] = [
+            // libdxfrw dwg2dxf expects: <input> <-version> <output>
+            [sourceDWG.path, "-v2010", outURL.path],
+            [sourceDWG.path, "-v2007", outURL.path],
+            [sourceDWG.path, "-v2004", outURL.path],
+            [sourceDWG.path, "-v2000", outURL.path],
+            [sourceDWG.path, "-R12", outURL.path],
+            // Keep legacy argument order as a last resort for nonstandard builds.
             ["-o", outURL.path, sourceDWG.path],
             [sourceDWG.path, "-o", outURL.path]
         ]
         let candidatePaths = try dwg2dxfCandidates()
+        var lastFailureSummary: String?
         for candidate in candidatePaths {
             if candidate.contains("/"), !FileManager.default.isExecutableFile(atPath: candidate) {
                 continue
@@ -84,7 +92,16 @@ enum DWGImportService {
                 if result.exitCode == 0, FileManager.default.fileExists(atPath: outURL.path) {
                     return outURL
                 }
+                let snippet = truncate(result.output)
+                if !snippet.isEmpty {
+                    lastFailureSummary = "\(candidate) \(args.joined(separator: " ")) -> exit \(result.exitCode): \(snippet)"
+                } else {
+                    lastFailureSummary = "\(candidate) \(args.joined(separator: " ")) -> exit \(result.exitCode)"
+                }
             }
+        }
+        if let lastFailureSummary {
+            throw DWGImportError.conversionFailed(lastFailureSummary)
         }
         return nil
     }
@@ -195,6 +212,13 @@ enum DWGImportService {
         } catch {
             return (127, error.localizedDescription)
         }
+    }
+
+    private static func truncate(_ text: String, max: Int = 600) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > max else { return trimmed }
+        let idx = trimmed.index(trimmed.startIndex, offsetBy: max)
+        return String(trimmed[..<idx]) + "..."
     }
 
     private static func importWorkspaceRoot() throws -> URL {

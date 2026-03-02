@@ -142,4 +142,82 @@ final class DXFCodecTests: XCTestCase {
         let doc = DXFCodec.parse(text: input, defaultName: "X")
         XCTAssertEqual(doc.entities.count, 4)
     }
+
+    func testSerializeLayerStatesIncludesFlagsAndAci() {
+        let doc = DXFDocument(
+            name: "LayerState",
+            units: .inches,
+            layerStyles: [
+                "A-WALL": DXFLayerStyle(
+                    color: DXFColor(r: 0.9, g: 0.2, b: 0.2),
+                    lineWeight: 0.35,
+                    lineType: .dashed,
+                    isVisible: false,
+                    isLocked: true,
+                    isFrozen: true
+                )
+            ],
+            entities: [.line(start: .init(x: 0, y: 0), end: .init(x: 10, y: 0), layer: "A-WALL", style: .default)]
+        )
+        let out = DXFCodec.serialize(document: doc)
+        XCTAssertTrue(out.contains("\n2\nA-WALL\n"))
+        XCTAssertTrue(out.contains("\n70\n5\n"))  // frozen + locked
+        XCTAssertTrue(out.contains("\n62\n-7\n")) // layer off
+    }
+
+    func testParseLayerStatesFromLayerTable() {
+        let input = """
+        0
+        SECTION
+        2
+        TABLES
+        0
+        TABLE
+        2
+        LAYER
+        70
+        1
+        0
+        LAYER
+        2
+        A-DOOR
+        70
+        5
+        62
+        -7
+        6
+        DASHED
+        0
+        ENDTAB
+        0
+        ENDSEC
+        0
+        SECTION
+        2
+        ENTITIES
+        0
+        LINE
+        8
+        A-DOOR
+        10
+        0
+        20
+        0
+        11
+        1
+        21
+        1
+        0
+        ENDSEC
+        0
+        EOF
+        """
+        let doc = DXFCodec.parse(text: input, defaultName: "LayerParse")
+        let style = doc.layerStyles["A-DOOR"]
+        XCTAssertNotNil(style)
+        XCTAssertEqual(style?.isVisible, false)
+        XCTAssertEqual(style?.isLocked, true)
+        XCTAssertEqual(style?.isFrozen, true)
+        XCTAssertEqual(style?.lineType, .dashed)
+    }
 }

@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private struct WindowSession {
         var window: NSWindow
         var controller: MainViewController
@@ -83,6 +83,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editItem.title = "Edit"
         menu.addItem(editItem)
         let editMenu = NSMenu()
+        let undoItem = editMenu.addItem(withTitle: "Undo", action: #selector(undoEdit(_:)), keyEquivalent: "z")
+        undoItem.target = self
+        let redoItem = editMenu.addItem(withTitle: "Redo", action: #selector(redoEdit(_:)), keyEquivalent: "Z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        redoItem.target = self
+        editMenu.addItem(NSMenuItem.separator())
         let deleteItem = editMenu.addItem(withTitle: "Delete Selected Entity", action: #selector(deleteSelectedEntity(_:)), keyEquivalent: "\u{8}")
         deleteItem.target = self
         editItem.submenu = editMenu
@@ -187,6 +193,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeSession()?.controller.deleteSelectedEntity()
     }
 
+    @objc private func undoEdit(_ sender: Any?) {
+        activeSession()?.controller.undoLastChange()
+    }
+
+    @objc private func redoEdit(_ sender: Any?) {
+        activeSession()?.controller.redoLastChange()
+    }
+
     @objc private func selectToolMenu(_ sender: Any?) {
         activeSession()?.controller.selectSelectionTool(sender)
     }
@@ -216,8 +230,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installShortcutMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
             guard let self, let session = self.activeSession() else { return event }
+            if event.type == .scrollWheel {
+                if session.controller.captureCommandHistoryScroll(event) {
+                    return nil
+                }
+                return event
+            }
+            if session.controller.captureCommandTyping(event) {
+                return nil
+            }
             if session.controller.handleShortcutEvent(event) {
                 return nil
             }
@@ -267,13 +290,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.isOpaque = true
         window.alphaValue = 1.0
-        window.backgroundColor = NSColor(calibratedWhite: 0.08, alpha: 1.0)
+        window.backgroundColor = NordTheme.polarNight0
         window.isMovableByWindowBackground = false
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentViewController = contentViewController
         window.minSize = NSSize(width: 920, height: 600)
         window.contentView?.wantsLayer = true
-        window.contentView?.layer?.backgroundColor = NSColor(calibratedWhite: 0.08, alpha: 1.0).cgColor
+        window.contentView?.layer?.backgroundColor = NordTheme.polarNight0.cgColor
         window.setFrame(rect, display: true)
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -357,5 +380,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard var session = sessions[key] else { return }
         session.documentURL = url
         sessions[key] = session
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let session = activeSession() else { return false }
+        switch menuItem.action {
+        case #selector(undoEdit(_:)):
+            return session.controller.canUndo()
+        case #selector(redoEdit(_:)):
+            return session.controller.canRedo()
+        default:
+            return true
+        }
     }
 }
